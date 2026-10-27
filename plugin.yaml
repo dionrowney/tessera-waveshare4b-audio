@@ -1,0 +1,178 @@
+# What a screen gets when it takes this plugin: the 4B's microphone, speaker and media player under the ids of the
+# features (ts_microphone, ts_speaker, ts_media_player), built as Tessera builds them for its own boards with one I2S
+# bus for both (features/audio.yaml, features/audio-half-duplex.yaml, features/audio-amplifier.yaml and the parts
+# es7210.yaml, es8311.yaml, amplifier.yaml of the Tessera repository), without the parts that only the core may use.
+#
+# The board file of the 4B already makes the I2C bus (touch_bus: GPIO47 SDA, GPIO48 SCL) and the TCA9554 expander
+# (expander), so this file uses both and makes neither. The pins are those of a 4B that runs Assist with ESPHome every
+# day: I2S MCLK GPIO5, BCLK GPIO16, LRCLK GPIO7, speaker data GPIO6, microphone data GPIO15; the speaker amplifier's
+# enable on the expander's fourth line (EXIO3), high for on. GPIO15 and GPIO7 are the audio here, never I2C, whatever
+# the 4-inch board without the "B" does with them.
+
+# One bus for both chips, at the voice's rate: a microphone and a speaker that share a bus share its rate, so the whole
+# bus runs at 16 kHz and the resamplers below bring every sound to it.
+i2s_audio:
+  - id: waveshare4b_audio_bus
+    i2s_mclk_pin: GPIO5
+    i2s_bclk_pin: GPIO16
+    i2s_lrclk_pin: GPIO7
+
+# The ES8311's DAC drives the speaker; its ADC is not wired. Its volume runs from 0 (-95.5 dB) to 1 (+32 dB), which the
+# media player's volume_min and volume_max below turn into -45 dB to 0 dB.
+audio_dac:
+  - platform: es8311
+    id: waveshare4b_audio_dac
+    i2c_id: touch_bus
+    address: 0x18
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    use_mclk: true
+    use_microphone: false
+
+# The ES7210 converts the microphones. 24 dB is the gain that works across a room on this board: at 33 dB conversation
+# in the room set the wake word off.
+audio_adc:
+  - platform: es7210
+    id: waveshare4b_audio_adc
+    i2c_id: touch_bus
+    address: 0x40
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    mic_gain: 24db
+
+microphone:
+  - platform: i2s_audio
+    id: ts_microphone
+    i2s_audio_id: waveshare4b_audio_bus
+    i2s_din_pin: GPIO15
+    adc_type: external
+    pdm: false
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: left
+
+speaker:
+  # The DAC, the one speaker that reaches the loudspeaker. It lets go of the bus half a second after a sound, so the
+  # microphone gets its turn.
+  - platform: i2s_audio
+    id: waveshare4b_audio_out
+    i2s_audio_id: waveshare4b_audio_bus
+    i2s_dout_pin: GPIO6
+    dac_type: external
+    audio_dac: waveshare4b_audio_dac
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    channel: mono
+    buffer_duration: 100ms
+    timeout: 500ms
+  # Two inputs in front of it: announcements over music.
+  - platform: mixer
+    id: waveshare4b_audio_mixer
+    output_speaker: waveshare4b_audio_out
+    num_channels: 1
+    task_stack_in_psram: true
+    source_speakers:
+      - id: waveshare4b_audio_announcement_input
+      - id: waveshare4b_audio_media_input
+  # And in front of each a resampler: a sound at any rate (the voice assistant's 48 kHz wake sound) reaches the mixer at
+  # the bus's 16 kHz. ts_speaker is the one announcements, voice and a plugin's sounds play on; half a second ahead, so a
+  # long redraw of the glass never runs it dry.
+  - platform: resampler
+    id: ts_speaker
+    output_speaker: waveshare4b_audio_announcement_input
+    task_stack_in_psram: true
+    buffer_duration: 500ms
+  - platform: resampler
+    id: waveshare4b_audio_media_speaker
+    output_speaker: waveshare4b_audio_media_input
+    task_stack_in_psram: true
+
+media_source:
+  - platform: audio_http
+    id: waveshare4b_audio_announcement_source
+  - platform: audio_http
+    id: waveshare4b_audio_media_source
+
+# Home Assistant's media player of the screen, so announcements and text to speech work, with or without a voice
+# assistant. Its 0 to 100 % runs evenly in decibels from -45 dB (just audible beside the screen) to 0 dB (the DAC's full
+# scale): (-45 - -95.5) / 127.5 and (0 - -95.5) / 127.5 of the DAC's range.
+media_player:
+  - platform: speaker_source
+    id: ts_media_player
+    name: "Media Player"
+    volume_initial: 0.5
+    volume_min: 0.396
+    volume_max: 0.749
+    announcement_pipeline:
+      speaker: ts_speaker
+      sources: [waveshare4b_audio_announcement_source]
+      format: FLAC
+      sample_rate: 16000
+      num_channels: 1
+    media_pipeline:
+      speaker: waveshare4b_audio_media_speaker
+      sources: [waveshare4b_audio_media_source]
+      format: FLAC
+      sample_rate: 16000
+      num_channels: 1
+
+switch:
+  # The amplifier: off from start, on while sound comes and off 300 ms after the last of it (the interval below), before
+  # the speaker lets go of the bus. So the DAC's pop when its clock starts and stops is never heard, and the speaker does
+  # not hiss between sounds. Without it on, the DAC plays and nothing comes out.
+  - platform: gpio
+    id: waveshare4b_audio_amp
+    internal: true
+    pin:
+      pca9554: expander
+      number: 3
+    restore_mode: ALWAYS_OFF
+  # Whether the microphone listens: off mutes it for everything that reads it, kept over a restart.
+  - platform: template
+    id: waveshare4b_audio_microphone_on
+    name: "Microphone"
+    icon: mdi:microphone
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      - microphone.unmute: ts_microphone
+    on_turn_off:
+      - microphone.mute: ts_microphone
+
+globals:
+  - id: waveshare4b_audio_microphone_paused
+    type: bool
+    initial_value: "false"
+
+interval:
+  # Taking turns on the bus. Whatever reads the microphone (a wake word) holds it all the time, and a speaker that finds
+  # the bus taken waits, so without this nothing would ever play. Whenever the speaker wants the bus the microphone lets
+  # go of it, and listens again once the speaker has stopped; whatever reads it waits for its data meanwhile.
+  - interval: 50ms
+    then:
+      - lambda: |-
+          const bool speaking = !id(waveshare4b_audio_out).is_stopped();
+          if (speaking && id(ts_microphone)->is_running()) {
+            id(waveshare4b_audio_microphone_paused) = true;
+            id(ts_microphone)->stop();
+          } else if (!speaking && id(waveshare4b_audio_microphone_paused)) {
+            id(waveshare4b_audio_microphone_paused) = false;
+            id(ts_microphone)->start();
+          }
+  # The amplifier follows the sound.
+  - interval: 20ms
+    then:
+      - lambda: |-
+          static uint32_t heard = 0;
+          const uint32_t now = millis();
+          if (id(waveshare4b_audio_out).is_running() && id(waveshare4b_audio_out).has_buffered_data()) heard = now ? now : 1;
+          const bool on = heard != 0 && now - heard < 300;
+          if (on != id(waveshare4b_audio_amp).state) {
+            if (on) id(waveshare4b_audio_amp).turn_on();
+            else id(waveshare4b_audio_amp).turn_off();
+          }
+
+waveshare4b_audio:
+  media_player: ts_media_player
+  microphone_on: waveshare4b_audio_microphone_on

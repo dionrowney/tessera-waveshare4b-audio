@@ -1,0 +1,24 @@
+# Waveshare 4B audio: the microphone, the speaker and the media player of the Waveshare ESP32-S3-Touch-LCD-4B, which
+# Tessera's board file for it leaves unused. With these three features on the screen, the voice assistant plugin
+# (voice_assist) and every other plugin that needs a speaker or a microphone fits this board as it is.
+#
+# The board's ES8311 (speaker) and ES7210 (microphones) share one I2S bus, so the microphone and the speaker take turns
+# on it, as Tessera's own boards with one bus do (features/audio-half-duplex.yaml in the Tessera repository).
+id: waveshare4b_audio
+version: 0.1.0
+api: "0.8"
+icon: speaker
+maintainer: dionrowney
+license: MIT
+stage: beta
+topics: [voice]
+requires:
+  esphome: 2026.9.0
+  psram: true
+provides: [microphone, speaker, media_player]
+boards: [waveshare4b]
+flash_kb: 120
+
+# The settings of plugin.yaml, also in the plugin's details on the screen's Plugins tab (their names as ids).
+settings:
+  - { key: microphone, label: setting_microphone, hint: setting_microphone_hint }

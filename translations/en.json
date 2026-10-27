@@ -1,0 +1,14 @@
+{
+  "_meta": { "name": "English" },
+  "screen": {
+    "name": "Audio",
+    "volume": "Volume",
+    "microphone": "Microphone"
+  },
+  "app": {
+    "name": "Waveshare 4B audio",
+    "summary": "The speaker and microphone of the Waveshare 4B, so the voice assistant and sounds work on it.",
+    "setting_microphone": "Microphone",
+    "setting_microphone_hint": "Off mutes the microphone for everything that listens, the wake word too."
+  }
+}
