@@ -5,7 +5,7 @@
 # The board's ES8311 (speaker) and ES7210 (microphones) share one I2S bus, so the microphone and the speaker take turns
 # on it, as Tessera's own boards with one bus do (features/audio-half-duplex.yaml in the Tessera repository).
 id: waveshare4b_audio
-version: 0.1.0
+version: 0.1.1
 api: "0.8"
 icon: speaker
 maintainer: dionrowney

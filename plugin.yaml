@@ -149,10 +149,19 @@ interval:
   # Taking turns on the bus. Whatever reads the microphone (a wake word) holds it all the time, and a speaker that finds
   # the bus taken waits, so without this nothing would ever play. Whenever the speaker wants the bus the microphone lets
   # go of it, and listens again once the speaker has stopped; whatever reads it waits for its data meanwhile.
-  - interval: 50ms
+  #
+  # A sound is seen where it enters, at the resamplers (starting, or holding data), not only at the I2S speaker: by the
+  # time the I2S speaker itself is starting it already asks for the bus, finds the microphone on it ("Parent bus is
+  # busy") and tries again only a second later, which delayed the voice assistant's wake sound into the question. A
+  # resampler that is running but empty does not count: it may stay running between sounds.
+  - interval: 20ms
     then:
       - lambda: |-
-          const bool speaking = !id(waveshare4b_audio_out).is_stopped();
+          auto entering = [](speaker::Speaker *s) {
+            return (!s->is_running() && !s->is_stopped()) || s->has_buffered_data();
+          };
+          const bool speaking = !id(waveshare4b_audio_out).is_stopped() || entering(id(ts_speaker)) ||
+                                entering(id(waveshare4b_audio_media_speaker));
           if (speaking && id(ts_microphone)->is_running()) {
             id(waveshare4b_audio_microphone_paused) = true;
             id(ts_microphone)->stop();
