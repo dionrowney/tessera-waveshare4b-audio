@@ -154,9 +154,18 @@ interval:
   # time the I2S speaker itself is starting it already asks for the bus, finds the microphone on it ("Parent bus is
   # busy") and tries again only a second later, which delayed the voice assistant's wake sound into the question. A
   # resampler that is running but empty does not count: it may stay running between sounds.
+  #
+  # ESPHome's I2S microphone counts its listeners: each start() takes one of 16 places, each stop() gives one back, and
+  # it runs while any place is taken. After a wake word two listen (the wake word and the voice assistant), so the
+  # pause gives every place back, and the resume takes them all again. Taking back only one left a single place for
+  # two listeners: when the voice assistant let go of its own, the microphone stopped under the wake word, which then
+  # never heard anything again ("the wake word works once after a start"). Places that are free or taken already are
+  # refused without harm. So once the microphone has run, it runs whenever the speaker is quiet; a listener that stops
+  # only stops getting its data (ESPHome's microphone source), and nothing waits for the microphone itself to stop.
   - interval: 20ms
     then:
       - lambda: |-
+          static constexpr int LISTENER_PLACES = 16;  // MAX_LISTENERS of ESPHome's i2s_audio microphone
           auto entering = [](speaker::Speaker *s) {
             return (!s->is_running() && !s->is_stopped()) || s->has_buffered_data();
           };
@@ -164,10 +173,10 @@ interval:
                                 entering(id(waveshare4b_audio_media_speaker));
           if (speaking && id(ts_microphone)->is_running()) {
             id(waveshare4b_audio_microphone_paused) = true;
-            id(ts_microphone)->stop();
+            for (int i = 0; i < LISTENER_PLACES; i++) id(ts_microphone)->stop();
           } else if (!speaking && id(waveshare4b_audio_microphone_paused)) {
             id(waveshare4b_audio_microphone_paused) = false;
-            id(ts_microphone)->start();
+            for (int i = 0; i < LISTENER_PLACES; i++) id(ts_microphone)->start();
           }
   # The amplifier follows the sound.
   - interval: 20ms
