@@ -61,8 +61,11 @@ to Home Assistant's `config/tessera-plugins/waveshare4b_audio/`.
 - Amp enable is expander line 3 (EXIO3), high for on. Without it the DAC runs and nothing is heard. Here it follows
   playback (the 20 ms interval), not always-on as in the ESPHome config.
 - Mic and speaker **share one I2S bus** and therefore one rate: everything runs at 16 kHz, and resamplers adapt
-  other rates. The 50 ms interval stops the mic whenever the speaker wants the bus. In the plain-ESPHome config
-  the same problem showed up as "wake word works exactly once", fixed there with a `rearm_wake_word` script.
+  other rates. The 20 ms interval stops the mic whenever sound enters the speaker chain. ESPHome's I2S mic
+  counts listeners (16 places, `start()` takes one, `stop()` gives one back), so the pause gives back **all**
+  places and the resume retakes all of them. A single `start()` on resume left one place for two listeners and
+  caused "wake word works exactly once" (fixed in 0.1.2). The plain-ESPHome config had the same symptom and fixed
+  it with a `rearm_wake_word` script.
 - ES7210 `mic_gain: 24db`. At 33 dB, speech across the room set the wake word off.
 - Check ESPHome options against the installed release tag, not `dev`/esphome.io. The user's HA add-on runs the
   beta channel. ESPHome rejects duplicate YAML keys that PyYAML would accept.
